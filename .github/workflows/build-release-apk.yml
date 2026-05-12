@@ -19,15 +19,17 @@ jobs:
     env:
       JAVA_VERSION: '17'
       BUILD_TOOLS_VERSION: '30.0.3'
+      # Gradle 4.6 matches AGP 3.1.x used in Launcher3 o-mr1.
+      GRADLE_VERSION: '4.6'
 
     steps:
-      # ── Checkout ────────────────────────────────────────────────────────────
+      # ── Checkout ─────────────────────────────────────────────────────────────
       - name: Checkout source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ── Java ─────────────────────────────────────────────────────────────────
+      # ── Java ──────────────────────────────────────────────────────────────────
       # sdkmanager v16+ requires JDK 17 or later.
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
@@ -36,7 +38,25 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      # ── Android SDK ──────────────────────────────────────────────────────────
+      # ── Gradle ───────────────────────────────────────────────────────────────
+      # Installs standalone Gradle so we can generate gradlew if the repo
+      # does not commit it (common in AOSP forks).
+      - name: Set up Gradle ${{ env.GRADLE_VERSION }}
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+
+      - name: Ensure Gradle wrapper exists
+        run: |
+          if [ ! -f gradlew ]; then
+            echo "gradlew not found — generating wrapper (Gradle ${{ env.GRADLE_VERSION }})"
+            gradle wrapper \
+              --gradle-version "${{ env.GRADLE_VERSION }}" \
+              --distribution-type all
+          fi
+          chmod +x gradlew
+
+      # ── Android SDK ───────────────────────────────────────────────────────────
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
@@ -49,25 +69,17 @@ jobs:
             "extras;google;m2repository"
 
       # ── Apply patches ─────────────────────────────────────────────────────────
-      # Patches live in .github/patches/ and are applied in filename order.
-      # Each file is a unified diff (git apply compatible).
       - name: Apply modification patches
         run: |
           set -e
           PATCH_DIR=".github/patches"
-          if [ ! -d "$PATCH_DIR" ]; then
-            echo "No patches directory found — skipping."
-            exit 0
-          fi
+          if [ ! -d "$PATCH_DIR" ]; then echo "No patches dir — skipping."; exit 0; fi
 
           git config user.email "ci@github-actions"
           git config user.name  "GitHub Actions"
 
           PATCHES=$(ls "$PATCH_DIR"/*.patch 2>/dev/null | sort)
-          if [ -z "$PATCHES" ]; then
-            echo "No *.patch files found — skipping."
-            exit 0
-          fi
+          if [ -z "$PATCHES" ]; then echo "No *.patch files — skipping."; exit 0; fi
 
           for PATCH in $PATCHES; do
             echo "▶ Applying $PATCH"
@@ -76,10 +88,7 @@ jobs:
           done
           echo "All patches applied."
 
-      # ── Gradle wrapper ───────────────────────────────────────────────────────
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
+      # ── Gradle cache ──────────────────────────────────────────────────────────
       - name: Cache Gradle packages
         uses: actions/cache@v4
         with:
@@ -96,11 +105,11 @@ jobs:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
       # ── Sign ──────────────────────────────────────────────────────────────────
-      # Required secrets in your repo:
-      #   KEYSTORE_BASE64      – base-64 encoded .jks / .keystore file
-      #   KEY_STORE_PASSWORD   – keystore password
-      #   KEY_ALIAS            – key alias inside the keystore
-      #   KEY_PASSWORD         – key password
+      # Repo secrets needed (Settings → Secrets → Actions):
+      #   KEYSTORE_BASE64    – base-64 encoded .jks / .keystore
+      #   KEY_STORE_PASSWORD – keystore password
+      #   KEY_ALIAS          – key alias
+      #   KEY_PASSWORD       – key password
       - name: Decode keystore
         if: ${{ env.KEYSTORE_BASE64 != '' }}
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore.jks
@@ -140,7 +149,7 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
 
-      # ── Version tag ───────────────────────────────────────────────────────────
+      # ── Version ───────────────────────────────────────────────────────────────
       - name: Determine version
         id: version
         run: |
@@ -166,25 +175,16 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: Launcher3 Modified ${{ github.ref_name }}
-          draft: false
-          prerelease: false
           files: ${{ env.ALIGNED_APK }}
           body: |
             ## Launcher3 Modified — ${{ github.ref_name }}
 
             ### Features
             - App drawer **Personal / Work** tabs
-            - Work tab: auto-folder per secondary user profile
-            - Desktop: folder per user profile with all their apps
-            - Long-press menu:
-              - **Advanced Permissions** (usage stats, all-files, unknown sources)
-              - **Share App** (single APK or merged .apks for split apps)
-              - **Install to User** (`pm install-existing --user` via root)
-              - **Show Data Dir** (opens `/data/data/<pkg>` in root file manager)
-              - **Show App Dir** (opens `/data/app/<pkg>` in root file manager)
-              - **Select** (multi-select for merge / uninstall / share)
+            - Long-press menu: Advanced Permissions, Share App, Install to User,
+              Show Data Dir, Show App Dir, Select
             - **Double-tap empty desktop to sleep**
-            - Root support
+            - Root utilities (RootUtils, UserProfileHelper, ApkShareHelper)
 
             > Root-only features require a rooted device.
         env:

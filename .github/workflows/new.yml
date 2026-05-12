@@ -10,6 +10,7 @@ on:
 env:
   JAVA_VERSION: '17'
   ANDROID_SDK: '27'
+  GRADLE_VERSION: '8.5'  # Use modern Gradle
 
 jobs:
   build:
@@ -24,10 +25,16 @@ jobs:
         with:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: 'temurin'
-          cache: 'gradle'
+
+      - name: Update Gradle Wrapper
+        run: |
+          sed -i 's|gradle-4\.6\.zip|gradle-{{ env.GRADLE_VERSION }}.zip|g' gradle/wrapper/gradle-wrapper.properties
+          cat gradle/wrapper/gradle-wrapper.properties
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -35,7 +42,7 @@ jobs:
       - name: Install SDK
         run: |
           sdkmanager "platforms;android-${{ env.ANDROID_SDK }}" \
-                     "build-tools;30.0.3"
+                     "build-tools;34.0.0"
 
       - name: Apply patches
         run: |
@@ -52,7 +59,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Find APK
         id: apk
@@ -63,7 +70,8 @@ jobs:
             echo "Found: $APK"
             ls -lh "$APK"
           else
-            echo "No APK found!"
+            echo "Searching for APK..."
+            find . -name "*.apk" 2>/dev/null
             exit 1
           fi
 

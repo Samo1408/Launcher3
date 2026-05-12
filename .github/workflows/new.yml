@@ -1,0 +1,75 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ "26-build" ]
+  pull_request:
+    branches: [ "26-build" ]
+  workflow_dispatch:
+
+env:
+  JAVA_VERSION: '17'
+  ANDROID_SDK: '27'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK
+        run: |
+          sdkmanager "platforms;android-${{ env.ANDROID_SDK }}" \
+                     "build-tools;30.0.3"
+
+      - name: Apply patches
+        run: |
+          echo "=== APPLYING PATCHES ==="
+          git config user.name "CI" && git config user.email "ci@gh"
+          
+          for p in .github/patches/*.patch; do
+            [ -f "$p" ] || continue
+            echo "▶ $(basename $p)"
+            git apply --whitespace=fix "$p" 2>/dev/null && echo "  ✅" || echo "  ⚠️"
+          done
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Find APK
+        id: apk
+        run: |
+          APK=$(find . -name "*.apk" -path "*/build/outputs/*" 2>/dev/null | head -1)
+          if [ -n "$APK" ]; then
+            echo "apk=$APK" >> $GITHUB_OUTPUT
+            echo "Found: $APK"
+            ls -lh "$APK"
+          else
+            echo "No APK found!"
+            exit 1
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher3-debug
+          path: ${{ steps.apk.outputs.apk }}
+          retention-days: 7

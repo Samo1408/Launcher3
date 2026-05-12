@@ -19,17 +19,14 @@ jobs:
     env:
       JAVA_VERSION: '17'
       BUILD_TOOLS_VERSION: '30.0.3'
-      # Gradle 4.6 matches AGP 3.1.x used in Launcher3 o-mr1.
-      GRADLE_VERSION: '4.6'
+      GRADLE_VERSION: '8.9'
 
     steps:
-      # ── Checkout ─────────────────────────────────────────────────────────────
       - name: Checkout source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ── Java ──────────────────────────────────────────────────────────────────
       # sdkmanager v16+ requires JDK 17 or later.
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
@@ -38,25 +35,32 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      # ── Gradle ───────────────────────────────────────────────────────────────
-      # Installs standalone Gradle so we can generate gradlew if the repo
-      # does not commit it (common in AOSP forks).
+      # Installs standalone Gradle so we can regenerate the wrapper when the
+      # repo has gradlew committed but NOT gradle-wrapper.jar (common in AOSP
+      # forks that add *.jar to .gitignore).
       - name: Set up Gradle ${{ env.GRADLE_VERSION }}
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: ${{ env.GRADLE_VERSION }}
 
-      - name: Ensure Gradle wrapper exists
+      # The root cause of "ClassNotFoundException: GradleWrapperMain" is a
+      # missing gradle/wrapper/gradle-wrapper.jar.  Regenerate the full wrapper
+      # (script + JAR + properties) whenever the JAR is absent.
+      - name: Ensure Gradle wrapper JAR exists
         run: |
-          if [ ! -f gradlew ]; then
-            echo "gradlew not found — generating wrapper (Gradle ${{ env.GRADLE_VERSION }})"
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "gradle-wrapper.jar missing — regenerating (Gradle ${{ env.GRADLE_VERSION }})"
+            gradle wrapper \
+              --gradle-version "${{ env.GRADLE_VERSION }}" \
+              --distribution-type all
+          else
+            echo "gradle-wrapper.jar found — upgrading wrapper to ${{ env.GRADLE_VERSION }}"
             gradle wrapper \
               --gradle-version "${{ env.GRADLE_VERSION }}" \
               --distribution-type all
           fi
           chmod +x gradlew
 
-      # ── Android SDK ───────────────────────────────────────────────────────────
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
@@ -68,27 +72,22 @@ jobs:
             "extras;android;m2repository" \
             "extras;google;m2repository"
 
-      # ── Apply patches ─────────────────────────────────────────────────────────
       - name: Apply modification patches
         run: |
           set -e
           PATCH_DIR=".github/patches"
           if [ ! -d "$PATCH_DIR" ]; then echo "No patches dir — skipping."; exit 0; fi
-
           git config user.email "ci@github-actions"
           git config user.name  "GitHub Actions"
-
           PATCHES=$(ls "$PATCH_DIR"/*.patch 2>/dev/null | sort)
           if [ -z "$PATCHES" ]; then echo "No *.patch files — skipping."; exit 0; fi
-
           for PATCH in $PATCHES; do
-            echo "▶ Applying $PATCH"
+            echo "Applying $PATCH"
             git apply --whitespace=fix --reject "$PATCH" || \
               echo "::warning::Patch $PATCH had conflicts — check *.rej files"
           done
           echo "All patches applied."
 
-      # ── Gradle cache ──────────────────────────────────────────────────────────
       - name: Cache Gradle packages
         uses: actions/cache@v4
         with:
@@ -98,15 +97,13 @@ jobs:
           key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-
 
-      # ── Build ─────────────────────────────────────────────────────────────────
       - name: Build release APK
         run: ./gradlew assembleLauncherRelease --stacktrace --no-daemon
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
-      # ── Sign ──────────────────────────────────────────────────────────────────
-      # Repo secrets needed (Settings → Secrets → Actions):
-      #   KEYSTORE_BASE64    – base-64 encoded .jks / .keystore
+      # Repo secrets (Settings → Secrets → Actions):
+      #   KEYSTORE_BASE64    – base-64 .jks
       #   KEY_STORE_PASSWORD – keystore password
       #   KEY_ALIAS          – key alias
       #   KEY_PASSWORD       – key password
@@ -129,7 +126,6 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
 
-      # ── Zipalign ──────────────────────────────────────────────────────────────
       - name: Zipalign signed APK
         if: ${{ env.KEYSTORE_BASE64 != '' }}
         run: |
@@ -140,7 +136,6 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
 
-      # ── Unsigned fallback ─────────────────────────────────────────────────────
       - name: Locate unsigned APK (no keystore configured)
         if: ${{ env.KEYSTORE_BASE64 == '' }}
         run: |
@@ -149,7 +144,6 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
 
-      # ── Version ───────────────────────────────────────────────────────────────
       - name: Determine version
         id: version
         run: |
@@ -160,7 +154,6 @@ jobs:
             echo "name=${{ github.event.inputs.version_name || 'dev' }}-$SHORT" >> $GITHUB_OUTPUT
           fi
 
-      # ── Upload artifact ───────────────────────────────────────────────────────
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -169,7 +162,6 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      # ── GitHub Release (tag pushes only) ──────────────────────────────────────
       - name: Create GitHub Release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2

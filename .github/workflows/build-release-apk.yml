@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      JAVA_VERSION: '17'
+      JAVA_VERSION: '11'
       BUILD_TOOLS_VERSION: '30.0.3'
       # Gradle 6.7.1 is the last 6.x release.
       # It is REQUIRED for Launcher3 o-mr1 / AGP 3.x:
@@ -25,7 +25,7 @@ jobs:
       #     REMOVED in Gradle 7.0 — any version >= 7 breaks the build.
       #   - Gradle 6.x supports JDK 17 via toolchains, so JDK 17 still works
       #     for sdkmanager while the build itself uses the same JVM.
-      GRADLE_VERSION: '6.7.1'
+      GRADLE_VERSION: '4.3.1'
 
     steps:
       - name: Checkout source
@@ -51,7 +51,7 @@ jobs:
 
       # Always regenerate the wrapper so gradle-wrapper.properties points to
       # 6.7.1 even if the repo already contains an older/newer jar.
-      - name: Regenerate Gradle wrapper (6.7.1)
+      - name: Regenerate Gradle wrapper (4.3.1)
         run: |
           gradle wrapper \
             --gradle-version "${{ env.GRADLE_VERSION }}" \

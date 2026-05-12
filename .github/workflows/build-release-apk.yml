@@ -19,7 +19,13 @@ jobs:
     env:
       JAVA_VERSION: '17'
       BUILD_TOOLS_VERSION: '30.0.3'
-      GRADLE_VERSION: '8.9'
+      # Gradle 6.7.1 is the last 6.x release.
+      # It is REQUIRED for Launcher3 o-mr1 / AGP 3.x:
+      #   - AGP 3.x internally references BuildCompletionListener, which was
+      #     REMOVED in Gradle 7.0 — any version >= 7 breaks the build.
+      #   - Gradle 6.x supports JDK 17 via toolchains, so JDK 17 still works
+      #     for sdkmanager while the build itself uses the same JVM.
+      GRADLE_VERSION: '6.7.1'
 
     steps:
       - name: Checkout source
@@ -35,31 +41,23 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      # Installs standalone Gradle so we can regenerate the wrapper when the
-      # repo has gradlew committed but NOT gradle-wrapper.jar (common in AOSP
-      # forks that add *.jar to .gitignore).
+      # Installs standalone Gradle 6.7.1 so we can regenerate the wrapper when
+      # the repo has gradlew but NOT gradle-wrapper.jar (AOSP repos often
+      # gitignore *.jar files).
       - name: Set up Gradle ${{ env.GRADLE_VERSION }}
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: ${{ env.GRADLE_VERSION }}
 
-      # The root cause of "ClassNotFoundException: GradleWrapperMain" is a
-      # missing gradle/wrapper/gradle-wrapper.jar.  Regenerate the full wrapper
-      # (script + JAR + properties) whenever the JAR is absent.
-      - name: Ensure Gradle wrapper JAR exists
+      # Always regenerate the wrapper so gradle-wrapper.properties points to
+      # 6.7.1 even if the repo already contains an older/newer jar.
+      - name: Regenerate Gradle wrapper (6.7.1)
         run: |
-          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
-            echo "gradle-wrapper.jar missing — regenerating (Gradle ${{ env.GRADLE_VERSION }})"
-            gradle wrapper \
-              --gradle-version "${{ env.GRADLE_VERSION }}" \
-              --distribution-type all
-          else
-            echo "gradle-wrapper.jar found — upgrading wrapper to ${{ env.GRADLE_VERSION }}"
-            gradle wrapper \
-              --gradle-version "${{ env.GRADLE_VERSION }}" \
-              --distribution-type all
-          fi
+          gradle wrapper \
+            --gradle-version "${{ env.GRADLE_VERSION }}" \
+            --distribution-type all
           chmod +x gradlew
+          echo "Wrapper ready — $(./gradlew --version | grep '^Gradle')"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3

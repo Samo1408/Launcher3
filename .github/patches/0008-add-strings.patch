@@ -1,0 +1,38 @@
+diff --git a/res/values/strings.xml b/res/values/strings.xml
+--- a/res/values/strings.xml
++++ b/res/values/strings.xml
+@@ -366,4 +366,31 @@ limitations under the License.
+     <!-- Smartspace Settings -->
+     <string name="smartspace_preferences">Smartspace settings</string>
+ 
++    <!-- Personal / Work tabs in All Apps drawer -->
++    <string name="tab_personal">Personal</string>
++    <string name="tab_work">Work</string>
++
++    <!-- Long-press menu: Advanced Permissions -->
++    <string name="action_advanced_permissions">Advanced Permissions</string>
++
++    <!-- Long-press menu: Share APK -->
++    <string name="action_share_app">Share App</string>
++    <!-- Error when APK sharing fails -->
++    <string name="share_app_failed">Could not prepare APK for sharing</string>
++
++    <!-- Long-press menu: Install to another user -->
++    <string name="action_install_to_user">Install to User…</string>
++    <string name="install_to_user_none_found">No secondary users found (root required)</string>
++    <string name="install_to_user_success">Installed successfully</string>
++    <string name="install_to_user_failed">Installation failed</string>
++
++    <!-- Long-press menu: Show Data Dir -->
++    <string name="action_show_data_dir">Show Data Dir</string>
++
++    <!-- Long-press menu: Show App Dir -->
++    <string name="action_show_app_dir">Show App Dir</string>
++
++    <!-- Long-press menu: Select -->
++    <string name="action_select">Select</string>
++
++    <!-- No file manager found for root explorer -->
++    <string name="no_file_manager_found">No compatible file manager installed</string>
++
+ </resources>

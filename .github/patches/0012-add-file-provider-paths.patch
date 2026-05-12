@@ -1,0 +1,15 @@
+diff --git a/res/xml/file_provider_paths.xml b/res/xml/file_provider_paths.xml
+new file mode 100644
+--- /dev/null
++++ b/res/xml/file_provider_paths.xml
+@@ -0,0 +1,10 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++  FileProvider paths used by ApkShareHelper to expose cached APK/APKS files.
++-->
++<paths xmlns:android="http://schemas.android.com/apk/res/android">
++    <!-- External cache dir: context.getExternalCacheDir()/shared_apks/ -->
++    <external-cache-path
++        name="shared_apks"
++        path="shared_apks/" />
++</paths>

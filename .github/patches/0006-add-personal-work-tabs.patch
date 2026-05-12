@@ -1,0 +1,146 @@
+diff --git a/src/com/android/launcher3/allapps/AllAppsContainerView.java b/src/com/android/launcher3/allapps/AllAppsContainerView.java
+--- a/src/com/android/launcher3/allapps/AllAppsContainerView.java
++++ b/src/com/android/launcher3/allapps/AllAppsContainerView.java
+@@ -16,6 +16,9 @@ package com.android.launcher3.allapps;
+ 
+ import android.content.Context;
+ import android.graphics.Color;
++import android.graphics.Typeface;
++import android.support.design.widget.TabLayout;
++import android.support.v4.view.ViewPager;
+ import android.graphics.Rect;
+ import android.graphics.drawable.ColorDrawable;
+ import android.graphics.drawable.InsetDrawable;
+@@ -23,6 +26,7 @@ import android.support.v7.widget.LinearLayoutManager;
+ import android.text.Selection;
+ import android.text.SpannableStringBuilder;
+ import android.util.AttributeSet;
++import android.util.Log;
+ import android.view.KeyEvent;
+ import android.view.MotionEvent;
+ import android.view.View;
+@@ -44,8 +48,12 @@ import com.android.launcher3.anim.SpringAnimationHandler;
+ import com.android.launcher3.config.FeatureFlags;
+ import com.android.launcher3.dragndrop.DragController;
+ import com.android.launcher3.dragndrop.DragOptions;
++import com.android.launcher3.folder.FolderInfo;
+ import com.android.launcher3.folder.Folder;
+ import com.android.launcher3.keyboard.FocusedItemDecorator;
++import com.android.launcher3.util.UserProfileHelper;
++import com.android.launcher3.util.WorkTabAdapter;
+ import com.android.launcher3.userevent.nano.LauncherLogProto.Target;
+ import com.android.launcher3.util.ComponentKey;
+ import com.android.launcher3.util.ComponentKeyMapper;
+@@ -53,7 +61,9 @@ import com.android.launcher3.util.PackageUserKey;
+ 
+ import java.util.ArrayList;
+ import java.util.List;
++import java.util.Map;
+ import java.util.Set;
++import java.util.LinkedHashMap;
+ 
+ /**
+  * The all apps view container.
+@@ -64,12 +74,20 @@ public class AllAppsContainerView extends BaseContainerView implements DragSourc
+     private final Launcher mLauncher;
+     private final AlphabeticalAppsList mApps;
+     private final AllAppsGridAdapter mAdapter;
++    // Work tab
++    private final AlphabeticalAppsList mWorkApps;
++    private final AllAppsGridAdapter mWorkAdapter;
+     private final LinearLayoutManager mLayoutManager;
++    private LinearLayoutManager mWorkLayoutManager;
+ 
+     private AllAppsRecyclerView mAppsRecyclerView;
++    private AllAppsRecyclerView mWorkAppsRecyclerView;
+     private SearchUiManager mSearchUiManager;
+     private View mSearchContainer;
+ 
++    private TabLayout mTabLayout;
++    private int mCurrentTab = 0; // 0 = Personal, 1 = Work
++
+     private SpannableStringBuilder mSearchQueryBuilder = null;
+ 
+     private int mNumAppsPerRow;
+@@ -83,6 +101,12 @@ public class AllAppsContainerView extends BaseContainerView implements DragSourc
+         mLauncher = Launcher.getLauncher(context);
+         mApps = new AlphabeticalAppsList(context);
+         mAdapter = new AllAppsGridAdapter(mLauncher, mApps, mLauncher, this);
++
++        // Work profile list
++        mWorkApps = new AlphabeticalAppsList(context);
++        mWorkAdapter = new AllAppsGridAdapter(mLauncher, mWorkApps, mLauncher, this);
++        mWorkApps.setAdapter(mWorkAdapter);
++
+         mSpringAnimationHandler = mAdapter.getSpringAnimationHandler();
+         mApps.setAdapter(mAdapter);
+         mLayoutManager = mAdapter.getLayoutManager();
+@@ -96,6 +120,17 @@ public class AllAppsContainerView extends BaseContainerView implements DragSourc
+     public void setApps(List<AppInfo> apps) {
+         List<AppInfo> personal = new ArrayList<>();
+         List<AppInfo> work = new ArrayList<>();
++        UserProfileHelper.splitPersonalWork(getContext(), apps, personal, work);
++        mApps.setApps(personal);
++        // For work tab, group by user profile → folder entries
++        mWorkApps.setApps(work);
+     }
+ 
+     /**
+@@ -163,6 +198,48 @@ public class AllAppsContainerView extends BaseContainerView implements DragSourc
+         super.onFinishInflate();
+ 
+         // This is a focus listener that proxies focus from a view into the list view.  This is to
++        // Set up Personal / Work tab bar
++        mTabLayout = findViewById(R.id.all_apps_tabs);
++        if (mTabLayout != null) {
++            mTabLayout.addTab(mTabLayout.newTab().setText(R.string.tab_personal));
++            mTabLayout.addTab(mTabLayout.newTab().setText(R.string.tab_work));
++            mTabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
++                @Override
++                public void onTabSelected(TabLayout.Tab tab) {
++                    mCurrentTab = tab.getPosition();
++                    updateTabVisibility();
++                }
++                @Override public void onTabUnselected(TabLayout.Tab tab) {}
++                @Override public void onTabReselected(TabLayout.Tab tab) {}
++            });
++        }
++
++        // Work RecyclerView (may be null if layout doesn't include it yet)
++        mWorkAppsRecyclerView = findViewById(R.id.work_apps_list_view);
++        if (mWorkAppsRecyclerView != null) {
++            mWorkLayoutManager = mWorkAdapter.getLayoutManager();
++            mWorkAppsRecyclerView.setApps(mWorkApps);
++            mWorkAppsRecyclerView.setLayoutManager(mWorkLayoutManager);
++            mWorkAppsRecyclerView.setAdapter(mWorkAdapter);
++            mWorkAppsRecyclerView.setHasFixedSize(true);
++            mWorkAppsRecyclerView.setItemAnimator(null);
++        }
++
++        updateTabVisibility();
++
+         // work around the search box from getting first focus and showing the cursor.
+         getContentView().setOnFocusChangeListener(new View.OnFocusChangeListener() {
+             @Override
+@@ -225,6 +312,25 @@ public class AllAppsContainerView extends BaseContainerView implements DragSourc
+         }
+     }
+ 
++    /** Shows/hides Personal and Work RecyclerViews based on the active tab. */
++    private void updateTabVisibility() {
++        if (mAppsRecyclerView == null) return;
++        if (mCurrentTab == 0) {
++            mAppsRecyclerView.setVisibility(View.VISIBLE);
++            if (mWorkAppsRecyclerView != null) mWorkAppsRecyclerView.setVisibility(View.GONE);
++        } else {
++            mAppsRecyclerView.setVisibility(View.GONE);
++            if (mWorkAppsRecyclerView != null) mWorkAppsRecyclerView.setVisibility(View.VISIBLE);
++        }
++    }
++
++    public AlphabeticalAppsList getWorkApps() { return mWorkApps; }
++    public AllAppsGridAdapter getWorkAdapter() { return mWorkAdapter; }
++
+     @Override
+     public View getTouchDelegateTargetView() {
+         return mAppsRecyclerView;

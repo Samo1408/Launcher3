@@ -1,0 +1,89 @@
+diff --git a/src/com/android/launcher3/Workspace.java b/src/com/android/launcher3/Workspace.java
+--- a/src/com/android/launcher3/Workspace.java
++++ b/src/com/android/launcher3/Workspace.java
+@@ -20,6 +20,7 @@ import android.animation.AnimatorSet;
+ import android.animation.LayoutTransition;
+ import android.animation.ObjectAnimator;
+ import android.animation.PropertyValuesHolder;
++import android.app.admin.DevicePolicyManager;
+ import android.animation.ValueAnimator;
+ import android.animation.ValueAnimator.AnimatorUpdateListener;
+ import android.annotation.SuppressLint;
+@@ -28,6 +29,7 @@ import android.appwidget.AppWidgetHostView;
+ import android.appwidget.AppWidgetProviderInfo;
+ import android.content.Context;
+ import android.content.res.Resources;
++import android.content.ComponentName;
+ import android.graphics.Bitmap;
+ import android.graphics.Canvas;
+ import android.graphics.Point;
+@@ -41,8 +43,10 @@ import android.util.SparseArray;
+ import android.view.LayoutInflater;
+ import android.view.MotionEvent;
+ import android.view.View;
++import android.view.GestureDetector;
+ import android.view.ViewDebug;
+ import android.view.ViewGroup;
++import android.util.Log;
+ 
+ import com.android.launcher3.LauncherSettings.Favorites;
+ import com.android.launcher3.accessibility.AccessibleDragListenerAdapter;
+@@ -105,6 +109,10 @@ public class Workspace extends PagedView
+     private static final String TAG = "Launcher.Workspace";
+     private static final boolean ENFORCE_DRAG_EVENT_ORDER = false;
+ 
++    // ── Double-tap to sleep ──────────────────────────────────────────────────
++    private GestureDetector mDoubleTapDetector;
++    private static final String DPM_LOCK_ADMIN = "com.android.launcher3.DoubleTapLockAdmin";
++
+     private static final int SNAP_OFF_EMPTY_SCREEN_DURATION = 400;
+     private static final int REMOVE_EMPTY_SCREEN_DELAY = 600;
+ 
+@@ -285,6 +293,17 @@ public class Workspace extends PagedView
+         super(context, attrs, defStyle);
+         mLauncher = Launcher.getLauncher(context);
+         mStateTransitionAnimation = new WorkspaceStateTransitionAnimation(mLauncher, this);
++
++        // Double-tap to sleep: lock the screen using DevicePolicyManager
++        mDoubleTapDetector = new GestureDetector(context,
++                new GestureDetector.SimpleOnGestureListener() {
++                    @Override
++                    public boolean onDoubleTap(MotionEvent e) {
++                        lockScreenNow();
++                        return true;
++                    }
++                });
++
+         final Resources res = getResources();
+         mWorkspaceFadeInAdjacentScreens = LauncherAnimUtils.isLEnhanced();
+         mFadeInAdjacentScreens = false;
+@@ -1409,7 +1424,16 @@ public class Workspace extends PagedView
+ 
+     @Override
+     public boolean onTouchEvent(MotionEvent ev) {
+-        return mLauncher.isAllAppsVisible() || super.onTouchEvent(ev);
++        // Feed every touch event to the double-tap detector first.
++        // If it consumed the event (double-tap), swallow it; otherwise pass through.
++        boolean consumed = mDoubleTapDetector.onTouchEvent(ev);
++        if (consumed) return true;
++        return mLauncher.isAllAppsVisible() || super.onTouchEvent(ev);
++    }
++
++    /** Locks the screen immediately using DevicePolicyManager. */
++    private void lockScreenNow() {
++        DevicePolicyManager dpm =
++                (DevicePolicyManager) getContext().getSystemService(Context.DEVICE_POLICY_SERVICE);
++        if (dpm != null) {
++            try {
++                dpm.lockNow();
++            } catch (SecurityException e) {
++                // DPM not active – fall back to power button simulation via root
++                new Thread(new Runnable() {
++                    @Override public void run() {
++                        RootUtils.exec("input keyevent 26");
++                    }
++                }).start();
++            }
++        }
+     }
+ 

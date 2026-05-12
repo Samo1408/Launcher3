@@ -1,0 +1,44 @@
+diff --git a/AndroidManifest.xml b/AndroidManifest.xml
+--- a/AndroidManifest.xml
++++ b/AndroidManifest.xml
+@@ -50,6 +50,17 @@
+     <uses-permission android:name="${applicationId}.permission.WRITE_SETTINGS" />
+ 
+     <!-- Custom -->
++
++    <!-- Required for Advanced Permissions shortcut -->
++    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
++        tools:ignore="ProtectedPermissions"/>
++    <!-- Required for APK sharing via FileProvider -->
++    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
++    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
++        android:maxSdkVersion="28"/>
++    <!-- Required for multi-user install (root operations do not need this, but retained for reference) -->
++    <uses-permission android:name="android.permission.MANAGE_USERS"
++        tools:ignore="ProtectedPermissions"/>
++    <!-- Double-tap to sleep -->
++    <uses-permission android:name="android.permission.DEVICE_POWER"
++        tools:ignore="ProtectedPermissions"/>
++
+     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
+ 
+     <application
+@@ -57,6 +68,14 @@
+         android:fullBackupOnly="true"
+         android:fullBackupContent="@xml/backupscheme"
+         android:hardwareAccelerated="true"
++        android:usesCleartextTraffic="false"
++        tools:targetApi="m">
++
++        <!-- FileProvider for APK sharing -->
++        <provider
++            android:name="android.support.v4.content.FileProvider"
++            android:authorities="${applicationId}.launcher3.fileprovider"
++            android:exported="false"
++            android:grantUriPermissions="true">
++            <meta-data
++                android:name="android.support.FILE_PROVIDER_PATHS"
++                android:resource="@xml/file_provider_paths" />
++        </provider>
++
+         android:icon="@drawable/ic_launcher_home"

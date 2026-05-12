@@ -1,0 +1,53 @@
+diff --git a/src/com/android/launcher3/popup/PopupContainerWithArrow.java b/src/com/android/launcher3/popup/PopupContainerWithArrow.java
+--- a/src/com/android/launcher3/popup/PopupContainerWithArrow.java
++++ b/src/com/android/launcher3/popup/PopupContainerWithArrow.java
+@@ -82,7 +82,8 @@ import static com.android.launcher3.userevent.nano.LauncherLogProto.ContainerTy
+  * {@link BubbleTextView} when it is long pressed.
+  */
+ public class PopupContainerWithArrow extends AbstractFloatingView implements DragSource,
+-        DragController.DragListener {
++        DragController.DragListener,
++        View.OnLongClickListener {
+ 
+     private static final int ITEM_TYPE_SHORTCUT = 0;
+     private static final int ITEM_TYPE_SYSTEM_SHORTCUT = 1;
+@@ -107,6 +108,7 @@ public class PopupContainerWithArrow extends AbstractFloatingView implements Dra
+     @ViewDebug.ExportedProperty(category = "launcher")
+     private int mGravity;
+ 
++
+     public PopupContainerWithArrow(Context context, AttributeSet attrs, int defStyleAttr) {
+         super(context, attrs, defStyleAttr);
+     }
+diff --git a/src/com/android/launcher3/popup/PopupDataProvider.java b/src/com/android/launcher3/popup/PopupDataProvider.java
+--- a/src/com/android/launcher3/popup/PopupDataProvider.java
++++ b/src/com/android/launcher3/popup/PopupDataProvider.java
+@@ -1,5 +1,6 @@
+ package com.android.launcher3.popup;
+ 
++import com.android.launcher3.R;
+ import android.content.ComponentName;
+ import android.os.UserHandle;
+ import android.service.notification.StatusBarNotification;
+@@ -59,9 +60,18 @@ public class PopupDataProvider implements NotificationListener.NotificationsChan
+     private Launcher mLauncher;
+ 
+     /**
+-     * Returns the list of system shortcuts for a given ItemInfo.
++     * Returns the list of system shortcuts for a given ItemInfo, including
++     * all custom shortcuts added by this modification.
+      */
+     public List<SystemShortcut> getEnabledSystemShortcuts() {
+         final List<SystemShortcut> shortcuts = new ArrayList<>();
++        // Stock shortcuts
+         shortcuts.add(new SystemShortcut.Widgets());
+         shortcuts.add(new SystemShortcut.AppInfo());
++        // ── New shortcuts from README ─────────────────────────────────────
++        shortcuts.add(new SystemShortcut.AdvancedPermissions());
++        shortcuts.add(new SystemShortcut.ShareApp());
++        shortcuts.add(new SystemShortcut.InstallToUser());
++        shortcuts.add(new SystemShortcut.ShowDataDir());
++        shortcuts.add(new SystemShortcut.ShowAppDir());
++        shortcuts.add(new SystemShortcut.Select());
+         return shortcuts;
+     }

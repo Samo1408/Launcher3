@@ -1,0 +1,88 @@
+diff --git a/src/com/android/launcher3/util/InstallToUserDialog.java b/src/com/android/launcher3/util/InstallToUserDialog.java
+new file mode 100644
+--- /dev/null
++++ b/src/com/android/launcher3/util/InstallToUserDialog.java
+@@ -0,0 +1,83 @@
++package com.android.launcher3.util;
++
++import android.app.AlertDialog;
++import android.content.Context;
++import android.content.DialogInterface;
++import android.os.AsyncTask;
++import android.os.UserManager;
++import android.widget.Toast;
++
++import com.android.launcher3.R;
++
++import java.util.List;
++
++/**
++ * Shows a dialog listing all secondary users and installs the given package for the selected user
++ * via root ( pm install-existing --user <id> <pkg> ).
++ */
++public class InstallToUserDialog {
++
++    /**
++     * Fetch secondary users in the background, then show the dialog on the UI thread.
++     */
++    public static void show(final Context context, final String packageName) {
++        new AsyncTask<Void, Void, List<Integer>>() {
++            @Override
++            protected List<Integer> doInBackground(Void... voids) {
++                return RootUtils.listSecondaryUsers();
++            }
++
++            @Override
++            protected void onPostExecute(List<Integer> users) {
++                if (users.isEmpty()) {
++                    Toast.makeText(context,
++                            R.string.install_to_user_none_found, Toast.LENGTH_SHORT).show();
++                    return;
++                }
++                buildAndShow(context, packageName, users);
++            }
++        }.execute();
++    }
++
++    private static void buildAndShow(final Context context,
++            final String packageName,
++            final List<Integer> users) {
++        UserManager um = (UserManager) context.getSystemService(Context.USER_SERVICE);
++        final String[] labels = new String[users.size()];
++        for (int i = 0; i < users.size(); i++) {
++            int uid = users.get(i);
++            android.os.UserHandle handle = UserHandleHelper.fromId(uid);
++            String name = null;
++            try {
++                name = um.getUserName(); // API 26+, best-effort
++            } catch (Exception ignored) {}
++            labels[i] = (name != null && !name.isEmpty())
++                    ? name + " (user " + uid + ")"
++                    : "user " + uid;
++        }
++
++        new AlertDialog.Builder(context)
++                .setTitle(R.string.action_install_to_user)
++                .setItems(labels, new DialogInterface.OnClickListener() {
++                    @Override
++                    public void onClick(DialogInterface dialog, int which) {
++                        final int userId = users.get(which);
++                        new AsyncTask<Void, Void, Boolean>() {
++                            @Override
++                            protected Boolean doInBackground(Void... voids) {
++                                return RootUtils.installExistingForUser(userId, packageName);
++                            }
++                            @Override
++                            protected void onPostExecute(Boolean success) {
++                                int msg = success
++                                        ? R.string.install_to_user_success
++                                        : R.string.install_to_user_failed;
++                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show();
++                            }
++                        }.execute();
++                    }
++                })
++                .setNegativeButton(android.R.string.cancel, null)
++                .show();
++    }
++}

@@ -1,0 +1,118 @@
+diff --git a/src/com/android/launcher3/model/LoaderTask.java b/src/com/android/launcher3/model/LoaderTask.java
+--- a/src/com/android/launcher3/model/LoaderTask.java
++++ b/src/com/android/launcher3/model/LoaderTask.java
+@@ -17,11 +17,14 @@ package com.android.launcher3.model;
+ 
+ import android.content.Context;
+ import android.content.Intent;
++import android.content.pm.ApplicationInfo;
++import android.content.pm.PackageManager;
+ import android.content.pm.PackageManager.NameNotFoundException;
+ import android.content.pm.ShortcutInfo;
+ import android.os.Process;
+ import android.os.UserHandle;
+ import android.os.UserManager;
++import android.text.TextUtils;
+ import android.util.Log;
+ import android.util.LongSparseArray;
+ import android.util.MutableInt;
+@@ -40,6 +43,7 @@ import com.android.launcher3.compat.UserManagerCompat;
+ import com.android.launcher3.graphics.LauncherIcons;
+ import com.android.launcher3.provider.ImportDataTask;
+ import com.android.launcher3.provider.LauncherDbUtils;
++import com.android.launcher3.util.UserProfileHelper;
+ import com.android.launcher3.shortcuts.DeepShortcutManager;
+ import com.android.launcher3.shortcuts.ShortcutInfoCompat;
+ 
+@@ -47,6 +51,7 @@ import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.HashMap;
+ import java.util.HashSet;
++import java.util.LinkedHashMap;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.concurrent.CancellationException;
+@@ -116,6 +121,11 @@ public class LoaderTask implements Runnable {
+         }
+ 
+         TraceHelper.partitionTrace(TAG, "step 1.1");
++        // After loading workspace items, inject per-profile desktop folders
++        // (one folder per secondary user containing all their apps).
++        // This is done here so it appears before the workspace is bound.
++        injectDesktopProfileFolders(context);
++
+         mResults.bindWorkspace();
+         // Notify the installer packages of packages with active installs on the first screen.
+         TraceHelper.partitionTrace(TAG, "step 1.2");
+@@ -256,4 +266,67 @@ public class LoaderTask implements Runnable {
+                 LauncherIcons.createIconBitmap(icon, context), context);
+         si.applyFrom(si2);
+         return si;
+     }
++
++    /**
++     * Creates one FolderInfo per secondary user profile on the first desktop screen.
++     * Each folder is named after the user (e.g. "user 10") and contains every app
++     * installed for that user.
++     *
++     * This runs on the loader thread, before workspace is bound, so it is safe to
++     * mutate mBgDataModel directly.
++     */
++    private void injectDesktopProfileFolders(Context context) {
++        UserManager um = (UserManager) context.getSystemService(Context.USER_SERVICE);
++        if (um == null) return;
++
++        List<UserHandle> allProfiles = um.getUserProfiles();
++        UserHandle primaryUser = Process.myUserHandle();
++
++        for (UserHandle profile : allProfiles) {
++            if (profile.equals(primaryUser)) continue; // skip primary user
++
++            long serial = um.getSerialNumberForUser(profile);
++            String folderName = "user " + serial;
++
++            // Check if a folder with this name already exists on the workspace
++            boolean exists = false;
++            synchronized (mBgDataModel) {
++                for (FolderInfo fi : mBgDataModel.folders.values()) {
++                    if (folderName.equalsIgnoreCase(fi.title != null ? fi.title.toString() : "")) {
++                        exists = true;
++                        break;
++                    }
++                }
++            }
++            if (exists) continue;
++
++            // Build list of apps for this profile
++            List<AppInfo> profileApps = new ArrayList<>();
++            synchronized (mBgDataModel) {
++                for (AppInfo ai : mBgDataModel.appIconCache.values()) {
++                    if (profile.equals(ai.user)) {
++                        profileApps.add(ai);
++                    }
++                }
++            }
++            if (profileApps.isEmpty()) continue;
++
++            // Create the folder info
++            FolderInfo folder = new FolderInfo();
++            folder.title = folderName;
++            folder.container = LauncherSettings.Favorites.CONTAINER_DESKTOP;
++            folder.screenId = 0;
++            folder.cellX = 0;
++            folder.cellY = 0;
++
++            // Add shortcuts to folder
++            for (AppInfo ai : profileApps) {
++                ShortcutInfo si = new ShortcutInfo(ai);
++                si.container = folder.id;
++                folder.add(si, false);
++            }
++
++            // Persist and add to data model
++            synchronized (mBgDataModel) {
++                mBgDataModel.addOrMoveToFolder(folder);
++            }
++        }
++    }
+ }

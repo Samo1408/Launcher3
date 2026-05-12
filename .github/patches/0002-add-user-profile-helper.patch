@@ -1,0 +1,93 @@
+diff --git a/src/com/android/launcher3/util/UserProfileHelper.java b/src/com/android/launcher3/util/UserProfileHelper.java
+new file mode 100644
+--- /dev/null
++++ b/src/com/android/launcher3/util/UserProfileHelper.java
+@@ -0,0 +1,85 @@
++package com.android.launcher3.util;
++
++import android.content.Context;
++import android.content.pm.PackageManager;
++import android.os.UserHandle;
++import android.os.UserManager;
++
++import com.android.launcher3.AppInfo;
++import com.android.launcher3.compat.UserManagerCompat;
++
++import java.util.ArrayList;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Map;
++
++/**
++ * Helper for splitting the app list into Personal (primary user) and Work (managed/secondary
++ * user) buckets, and grouping Work apps into per-user folders.
++ */
++public class UserProfileHelper {
++
++    /**
++     * Splits {@code allApps} into two lists.
++     *
++     * @param context  Application context.
++     * @param allApps  The full flat app list from AlphabeticalAppsList.
++     * @param personal OUT – apps belonging to the primary (personal) user.
++     * @param work     OUT – apps belonging to any non-primary (work/managed) user.
++     */
++    public static void splitPersonalWork(Context context,
++            List<AppInfo> allApps,
++            List<AppInfo> personal,
++            List<AppInfo> work) {
++        UserManagerCompat um = UserManagerCompat.getInstance(context);
++        for (AppInfo app : allApps) {
++            if (um.isQuietModeEnabled(app.user)) {
++                // Quiet-mode apps still appear, just badged
++                work.add(app);
++            } else if (isWorkProfile(context, app.user)) {
++                work.add(app);
++            } else {
++                personal.add(app);
++            }
++        }
++    }
++
++    /**
++     * Groups a list of work apps by their UserHandle serial number.
++     * The map key is a human-readable label such as "user 10".
++     */
++    public static Map<String, List<AppInfo>> groupByUser(Context context, List<AppInfo> workApps) {
++        UserManager um = (UserManager) context.getSystemService(Context.USER_SERVICE);
++        Map<String, List<AppInfo>> groups = new LinkedHashMap<>();
++        for (AppInfo app : workApps) {
++            long serial = um.getSerialNumberForUser(app.user);
++            String label = "user " + serial;
++            if (!groups.containsKey(label)) {
++                groups.put(label, new ArrayList<AppInfo>());
++            }
++            groups.get(label).add(app);
++        }
++        return groups;
++    }
++
++    /**
++     * Returns true if the given UserHandle belongs to a work / managed profile
++     * (i.e. it is NOT the primary user and NOT a secondary full user added via Settings).
++     */
++    public static boolean isWorkProfile(Context context, UserHandle user) {
++        UserManager um = (UserManager) context.getSystemService(Context.USER_SERVICE);
++        // On Android O+, getManagedProfiles() contains managed profiles.
++        // For older APIs, we approximate: any non-zero serial that was created as a
++        // restricted or managed profile is treated as work.
++        long serial = um.getSerialNumberForUser(user);
++        if (serial == 0) return false; // primary user
++        // Check if it is listed as a managed profile of the current user
++        List<UserHandle> profiles = um.getUserProfiles();
++        for (UserHandle profile : profiles) {
++            if (profile.equals(user) && !um.isUserRunning(profile)) {
++                return true;
++            }
++            if (profile.equals(user)) {
++                return true;
++            }
++        }
++        return false;
++    }
++}

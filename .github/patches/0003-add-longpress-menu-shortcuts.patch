@@ -1,0 +1,283 @@
+diff --git a/src/com/android/launcher3/popup/SystemShortcut.java b/src/com/android/launcher3/popup/SystemShortcut.java
+--- a/src/com/android/launcher3/popup/SystemShortcut.java
++++ b/src/com/android/launcher3/popup/SystemShortcut.java
+@@ -1,19 +1,44 @@
+ package com.android.launcher3.popup;
+ 
+ import android.content.Context;
++import android.content.Intent;
++import android.content.pm.PackageManager;
++import android.net.Uri;
++import android.os.AsyncTask;
++import android.os.UserManager;
+ import android.graphics.Rect;
+ import android.graphics.drawable.Drawable;
+ import android.os.Bundle;
++import android.os.UserHandle;
+ import android.view.View;
++import android.widget.Toast;
+ 
+ import com.android.launcher3.AbstractFloatingView;
+ import com.android.launcher3.InfoDropTarget;
+ import com.android.launcher3.ItemInfo;
+ import com.android.launcher3.Launcher;
+ import com.android.launcher3.R;
+ import com.android.launcher3.model.WidgetItem;
++import com.android.launcher3.util.ApkShareHelper;
++import com.android.launcher3.util.InstallToUserDialog;
++import com.android.launcher3.util.RootUtils;
+ import com.android.launcher3.util.PackageUserKey;
+ import com.android.launcher3.widget.WidgetsBottomSheet;
+ 
+ import java.util.List;
+ 
+ import static com.android.launcher3.userevent.nano.LauncherLogProto.Action;
+ import static com.android.launcher3.userevent.nano.LauncherLogProto.ControlType;
++import static android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS;
++import static android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION;
++import static android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES;
+ 
+ /**
+  * Represents a system shortcut for a given app. The shortcut should have a static label and
+@@ -110,4 +135,237 @@ public abstract class SystemShortcut extends ItemInfo {
+             };
+         }
+     }
++
++    // ─────────────────────────────────────────────────────────────────────────
++    // Advanced Permissions shortcut
++    // Opens usage-stats, all-files and unknown-sources settings for the app.
++    // ─────────────────────────────────────────────────────────────────────────
++    public static class AdvancedPermissions extends SystemShortcut {
++        public AdvancedPermissions() {
++            super(R.drawable.ic_setting, R.string.action_advanced_permissions);
++        }
++
++        @Override
++        public View.OnClickListener getOnClickListener(final Launcher launcher,
++                final ItemInfo itemInfo) {
++            final String pkg = itemInfo.getTargetComponent() != null
++                    ? itemInfo.getTargetComponent().getPackageName() : null;
++            if (pkg == null) return null;
++            return new View.OnClickListener() {
++                @Override
++                public void onClick(View v) {
++                    AbstractFloatingView.closeAllOpenViews(launcher);
++                    // Usage stats
++                    try {
++                        launcher.startActivity(new Intent(ACTION_USAGE_ACCESS_SETTINGS));
++                    } catch (Exception ignored) {}
++                    // All-files (Android R+)
++                    try {
++                        Intent allFiles = new Intent(ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
++                                Uri.parse("package:" + pkg));
++                        launcher.startActivity(allFiles);
++                    } catch (Exception e) {
++                        try {
++                            launcher.startActivity(
++                                    new Intent(ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION));
++                        } catch (Exception ignored) {}
++                    }
++                    // Unknown sources (Android O+)
++                    try {
++                        Intent unknown = new Intent(ACTION_MANAGE_UNKNOWN_APP_SOURCES,
++                                Uri.parse("package:" + pkg));
++                        launcher.startActivity(unknown);
++                    } catch (Exception ignored) {}
++                }
++            };
++        }
++    }
++
++    // ─────────────────────────────────────────────────────────────────────────
++    // Share APK shortcut
++    // Shares the base APK; if the app uses split APKs, merges them into a
++    // single .apks bundle first (using ApkShareHelper).
++    // ─────────────────────────────────────────────────────────────────────────
++    public static class ShareApp extends SystemShortcut {
++        public ShareApp() {
++            super(R.drawable.ic_remove_no_shadow, R.string.action_share_app);
++        }
++
++        @Override
++        public View.OnClickListener getOnClickListener(final Launcher launcher,
++                final ItemInfo itemInfo) {
++            final String pkg = itemInfo.getTargetComponent() != null
++                    ? itemInfo.getTargetComponent().getPackageName() : null;
++            if (pkg == null) return null;
++            return new View.OnClickListener() {
++                @Override
++                public void onClick(View v) {
++                    AbstractFloatingView.closeAllOpenViews(launcher);
++                    new AsyncTask<Void, Void, Uri>() {
++                        @Override
++                        protected Uri doInBackground(Void... voids) {
++                            return ApkShareHelper.buildShareUri(launcher, pkg);
++                        }
++                        @Override
++                        protected void onPostExecute(Uri uri) {
++                            if (uri == null) {
++                                Toast.makeText(launcher,
++                                        R.string.share_app_failed, Toast.LENGTH_SHORT).show();
++                                return;
++                            }
++                            Intent share = new Intent(Intent.ACTION_SEND);
++                            share.setType("application/vnd.android.package-archive");
++                            share.putExtra(Intent.EXTRA_STREAM, uri);
++                            share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
++                            launcher.startActivity(Intent.createChooser(share,
++                                    launcher.getString(R.string.action_share_app)));
++                        }
++                    }.execute();
++                }
++            };
++        }
++    }
++
++    // ─────────────────────────────────────────────────────────────────────────
++    // Install to another user shortcut (root required)
++    // Runs: pm install-existing --user <id> <pkg>
++    // ─────────────────────────────────────────────────────────────────────────
++    public static class InstallToUser extends SystemShortcut {
++        public InstallToUser() {
++            super(R.drawable.ic_uninstall_no_shadow, R.string.action_install_to_user);
++        }
++
++        @Override
++        public View.OnClickListener getOnClickListener(final Launcher launcher,
++                final ItemInfo itemInfo) {
++            final String pkg = itemInfo.getTargetComponent() != null
++                    ? itemInfo.getTargetComponent().getPackageName() : null;
++            if (pkg == null) return null;
++            return new View.OnClickListener() {
++                @Override
++                public void onClick(View v) {
++                    AbstractFloatingView.closeAllOpenViews(launcher);
++                    InstallToUserDialog.show(launcher, pkg);
++                }
++            };
++        }
++    }
++
++    // ─────────────────────────────────────────────────────────────────────────
++    // Show Data Dir shortcut (root required)
++    // Opens /data/data/<pkg> in a root file explorer.
++    // ─────────────────────────────────────────────────────────────────────────
++    public static class ShowDataDir extends SystemShortcut {
++        public ShowDataDir() {
++            super(R.drawable.ic_info_no_shadow, R.string.action_show_data_dir);
++        }
++
++        @Override
++        public View.OnClickListener getOnClickListener(final Launcher launcher,
++                final ItemInfo itemInfo) {
++            final String pkg = itemInfo.getTargetComponent() != null
++                    ? itemInfo.getTargetComponent().getPackageName() : null;
++            if (pkg == null) return null;
++            return new View.OnClickListener() {
++                @Override
++                public void onClick(View v) {
++                    AbstractFloatingView.closeAllOpenViews(launcher);
++                    String dataPath = "/data/data/" + pkg;
++                    openInRootExplorer(launcher, dataPath);
++                }
++            };
++        }
++    }
++
++    // ─────────────────────────────────────────────────────────────────────────
++    // Show App Dir shortcut (root required)
++    // Opens /data/app/<pkg> in a root file explorer.
++    // ─────────────────────────────────────────────────────────────────────────
++    public static class ShowAppDir extends SystemShortcut {
++        public ShowAppDir() {
++            super(R.drawable.ic_info_no_shadow, R.string.action_show_app_dir);
++        }
++
++        @Override
++        public View.OnClickListener getOnClickListener(final Launcher launcher,
++                final ItemInfo itemInfo) {
++            final String pkg = itemInfo.getTargetComponent() != null
++                    ? itemInfo.getTargetComponent().getPackageName() : null;
++            if (pkg == null) return null;
++            return new View.OnClickListener() {
++                @Override
++                public void onClick(View v) {
++                    AbstractFloatingView.closeAllOpenViews(launcher);
++                    // Locate actual app dir via pm path
++                    new AsyncTask<Void, Void, String>() {
++                        @Override
++                        protected String doInBackground(Void... voids) {
++                            List<String> out = RootUtils.exec("pm path " + pkg);
++                            for (String line : out) {
++                                // "package:/data/app/com.example-xxx=/base.apk"
++                                if (line.startsWith("package:")) {
++                                    String path = line.substring("package:".length());
++                                    int slash = path.lastIndexOf('/');
++                                    if (slash > 0) return path.substring(0, slash);
++                                    return path;
++                                }
++                            }
++                            return "/data/app/" + pkg;
++                        }
++                        @Override
++                        protected void onPostExecute(String appPath) {
++                            openInRootExplorer(launcher, appPath);
++                        }
++                    }.execute();
++                }
++            };
++        }
++    }
++
++    // ─────────────────────────────────────────────────────────────────────────
++    // Select shortcut
++    // Enters multi-select mode for the tapped icon (merge/uninstall/share).
++    // ─────────────────────────────────────────────────────────────────────────
++    public static class Select extends SystemShortcut {
++        public Select() {
++            super(R.drawable.ic_star_rating, R.string.action_select);
++        }
++
++        @Override
++        public View.OnClickListener getOnClickListener(final Launcher launcher,
++                final ItemInfo itemInfo) {
++            return new View.OnClickListener() {
++                @Override
++                public void onClick(View v) {
++                    AbstractFloatingView.closeAllOpenViews(launcher);
++                    launcher.enterSelectionMode(itemInfo);
++                }
++            };
++        }
++    }
++
++    // ─────────────────────────────────────────────────────────────────────────
++    // Shared helper: open a path in the first available root file explorer.
++    // ─────────────────────────────────────────────────────────────────────────
++    private static void openInRootExplorer(Context context, String path) {
++        PackageManager pm = context.getPackageManager();
++        for (String explorerPkg : RootUtils.ROOT_EXPLORERS) {
++            Intent intent = new Intent(Intent.ACTION_VIEW);
++            intent.setPackage(explorerPkg);
++            intent.setDataAndType(Uri.parse("file://" + path), "resource/folder");
++            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
++                    | Intent.FLAG_GRANT_READ_URI_PERMISSION);
++            try {
++                pm.getPackageInfo(explorerPkg, 0);
++                context.startActivity(intent);
++                return;
++            } catch (PackageManager.NameNotFoundException ignored) {}
++            catch (Exception ignored) {}
++        }
++        // Fallback: generic file manager
++        Intent fallback = new Intent(Intent.ACTION_VIEW);
++        fallback.setDataAndType(Uri.parse("file://" + path), "resource/folder");
++        fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++        try {
++            context.startActivity(fallback);
++        } catch (Exception e) {
++            Toast.makeText(context, R.string.no_file_manager_found, Toast.LENGTH_SHORT).show();
++        }
++    }
+ }

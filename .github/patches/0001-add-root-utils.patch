@@ -1,0 +1,114 @@
+diff --git a/src/com/android/launcher3/util/RootUtils.java b/src/com/android/launcher3/util/RootUtils.java
+new file mode 100644
+--- /dev/null
++++ b/src/com/android/launcher3/util/RootUtils.java
+@@ -0,0 +1,101 @@
++package com.android.launcher3.util;
++
++import android.util.Log;
++
++import java.io.BufferedReader;
++import java.io.DataOutputStream;
++import java.io.IOException;
++import java.io.InputStreamReader;
++import java.util.ArrayList;
++import java.util.List;
++
++/**
++ * Helper for executing shell commands via root (su).
++ * All methods that shell-out MUST be called off the main thread.
++ */
++public class RootUtils {
++
++    private static final String TAG = "RootUtils";
++
++    /** Returns true if the device is rooted and su is accessible. */
++    public static boolean isRooted() {
++        try {
++            Process process = Runtime.getRuntime().exec("su -c id");
++            BufferedReader br = new BufferedReader(new InputStreamReader(process.getInputStream()));
++            String line = br.readLine();
++            process.waitFor();
++            return line != null && line.contains("uid=0");
++        } catch (Exception e) {
++            return false;
++        }
++    }
++
++    /**
++     * Executes a single root command and returns stdout lines.
++     *
++     * @param command The shell command to run as root.
++     * @return Lines of stdout output; empty list on error.
++     */
++    public static List<String> exec(String command) {
++        List<String> output = new ArrayList<>();
++        Process process = null;
++        DataOutputStream os = null;
++        try {
++            process = Runtime.getRuntime().exec("su");
++            os = new DataOutputStream(process.getOutputStream());
++            os.writeBytes(command + "\n");
++            os.writeBytes("exit\n");
++            os.flush();
++
++            BufferedReader br = new BufferedReader(new InputStreamReader(process.getInputStream()));
++            String line;
++            while ((line = br.readLine()) != null) {
++                output.add(line);
++            }
++            process.waitFor();
++        } catch (Exception e) {
++            Log.e(TAG, "exec failed: " + command, e);
++        } finally {
++            if (os != null) { try { os.close(); } catch (IOException ignored) {} }
++            if (process != null) process.destroy();
++        }
++        return output;
++    }
++
++    /**
++     * Installs an already-installed package for another user via:
++     *   pm install-existing --user <userId> <packageName>
++     *
++     * @return true if the command reported success.
++     */
++    public static boolean installExistingForUser(int userId, String packageName) {
++        List<String> out = exec("pm install-existing --user " + userId + " " + packageName);
++        for (String line : out) {
++            if (line.startsWith("Success")) return true;
++        }
++        return false;
++    }
++
++    /**
++     * Returns a list of secondary user IDs from `pm list users`.
++     * The primary user (id=0) is excluded.
++     */
++    public static List<Integer> listSecondaryUsers() {
++        List<Integer> users = new ArrayList<>();
++        List<String> out = exec("pm list users");
++        for (String line : out) {
++            // Format: "\tUserInfo{10:Work:30} running"
++            int start = line.indexOf('{');
++            int colon = line.indexOf(':', start);
++            if (start < 0 || colon < 0) continue;
++            try {
++                int id = Integer.parseInt(line.substring(start + 1, colon).trim());
++                if (id != 0) users.add(id);
++            } catch (NumberFormatException ignored) {}
++        }
++        return users;
++    }
++
++    /**
++     * Opens a path in a known root-capable file manager, trying each in order.
++     * Returns an ACTION_VIEW Intent ready to be started, or null if none found.
++     */
++    public static String[] ROOT_EXPLORERS = {
++        "com.mixplorer",
++        "com.mixplorer.silver",
++        "bin.mt.plus.canary",
++        "bin.mt.plus"
++    };
++}

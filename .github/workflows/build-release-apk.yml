@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      JAVA_VERSION: '11'
+      JAVA_VERSION: '17'
       BUILD_TOOLS_VERSION: '30.0.3'
       # Gradle 6.7.1 is the last 6.x release.
       # It is REQUIRED for Launcher3 o-mr1 / AGP 3.x:

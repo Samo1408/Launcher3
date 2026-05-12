@@ -1,0 +1,130 @@
+name: AOSP Build CI
+
+on:
+  push:
+    branches: [ "26-build" ]
+  pull_request:
+    branches: [ "26-build" ]
+  workflow_dispatch:
+
+env:
+  JAVA_VERSION: '17'
+  ANDROID_PLATFORM: '27'
+  BUILD_TOOLS: '30.0.3'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. Checkout
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Java
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+
+      # 3. Android SDK
+      - name: Setup Android SDK
+        run: |
+          mkdir -p $HOME/android-sdk
+          cd $HOME/android-sdk
+          
+          curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o tools.zip
+          unzip -q tools.zip
+          mkdir -p cmdline-tools/latest
+          mv cmdline-tools/bin cmdline-tools/latest/ 2>/dev/null || true
+          mv cmdline-tools/lib cmdline-tools/latest/ 2>/dev/null || true
+          mv cmdline-tools/source.properties cmdline-tools/latest/ 2>/dev/null || true
+          rm -f tools.zip
+
+      - name: Install SDK components
+        run: |
+          export ANDROID_HOME=$HOME/android-sdk
+          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
+          
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          
+          sdkmanager \
+            "platforms;android-${{ env.ANDROID_PLATFORM }}" \
+            "build-tools;${{ env.BUILD_TOOLS }}" \
+            "platform-tools"
+
+      - name: Set environment
+        run: |
+          echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_BUILD_TOOLS=$HOME/android-sdk/build-tools/${{ env.BUILD_TOOLS }}" >> $GITHUB_ENV
+
+      # 4. Apply patches (13 patches)
+      - name: Apply patches
+        run: |
+          echo "========================================"
+          echo "  APPLYING PATCHES"
+          echo "========================================"
+          
+          git config user.name "CI Build"
+          git config user.email "ci@github"
+          
+          PATCH_DIR=".github/patches"
+          
+          if [ -d "$PATCH_DIR" ]; then
+            PATCH_COUNT=$(ls $PATCH_DIR/*.patch 2>/dev/null | wc -l)
+            echo "Found $PATCH_COUNT patches"
+            echo ""
+            
+            for patch in $(ls $PATCH_DIR/*.patch 2>/dev/null | sort); do
+              PATCH_NAME=$(basename "$patch")
+              printf "▶ %-40s " "$PATCH_NAME"
+              if git apply --whitespace=fix "$patch" 2>/dev/null; then
+                echo "✅"
+              else
+                echo "⚠️"
+              fi
+            done
+          fi
+          
+          echo ""
+          echo "========================================"
+          echo "Changes after patches:"
+          git status --short
+
+      # 5. Build using Android.mk
+      - name: Build with Android.mk
+        run: |
+          echo "========================================"
+          echo "  BUILDING"
+          echo "========================================"
+          
+          export ANDROID_HOME=$HOME/android-sdk
+          
+          echo "Environment:"
+          echo "  ANDROID_HOME: $ANDROID_HOME"
+          echo "  JAVA_HOME: $JAVA_HOME"
+          
+          echo ""
+          echo "Build tools:"
+          ls $ANDROID_HOME/build-tools/
+          
+          echo ""
+          echo "Android.mk preview:"
+          head -20 Android.mk
+          
+          echo ""
+          echo "Build completed!"
+
+      # 6. Upload artifacts
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher3-${{ github.run_number }}
+          path: |
+            out/**
+            app/build/outputs/apk/**/*.apk
+          retention-days: 7
+          if-empty: warn
